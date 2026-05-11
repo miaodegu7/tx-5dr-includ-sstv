@@ -26,3 +26,14 @@ en_small.onnx
 ```
 
 You can override the bundled model path with `TX5DR_DEEPCW_MODEL_PATH`.
+
+## Runtime acceleration
+
+TX-5DR uses `onnxruntime-node` for DeepCW inference. CPU is always available.
+macOS can use CoreML, and Linux x64 can expose CUDA or experimental WebGPU
+execution providers when the host GPU stack is already installed.
+
+Linux GPU acceleration is intentionally self-managed: TX-5DR packages do not
+install NVIDIA drivers, CUDA, cuDNN, or other system GPU libraries. For CUDA,
+install the NVIDIA driver and CUDA v12 runtime required by `onnxruntime-node`;
+if provider initialization fails, switch the CW decoder runtime back to CPU.
