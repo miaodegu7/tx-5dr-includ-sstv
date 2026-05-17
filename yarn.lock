@@ -6581,8 +6581,10 @@ __metadata:
     node-forge: "npm:^1.4.0"
     node-wav: "npm:^0.0.2"
     onnxruntime-node: "npm:^1.26.0"
+    pngjs: "npm:^7.0.0"
     rubato-fft-node: "npm:^0.1.0"
     serialport: "npm:^13.0.0"
+    sstv: "npm:^1.0.0"
     tsx: "npm:^4.0.0"
     typescript: "npm:^5.0.0"
     vitest: "npm:^1.0.0"
@@ -11591,6 +11593,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"fft.js@npm:^4.0.4":
+  version: 4.0.4
+  resolution: "fft.js@npm:4.0.4"
+  checksum: 10c0/ea9bf9df38204281078629e32e0176035e8121410bb8db67b5544520faa6f567734774afb87eafc31cb43339995295d3d72202917b4f43942be4eca8dd54b226
+  languageName: node
+  linkType: hard
+
 "figures@npm:^2.0.0":
   version: 2.0.0
   resolution: "figures@npm:2.0.0"
@@ -16022,6 +16031,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"pngjs@npm:^7.0.0":
+  version: 7.0.0
+  resolution: "pngjs@npm:7.0.0"
+  checksum: 10c0/0d4c7a0fd476a9c33df7d0a2a73e1d56537628a668841f6995c2bca070cf30819f9254a64363266bc14ef2fee47659dd3b4f2b18eec7ab65143015139f497b38
+  languageName: node
+  linkType: hard
+
 "point-in-polygon-hao@npm:^1.1.0":
   version: 1.2.4
   resolution: "point-in-polygon-hao@npm:1.2.4"
@@ -17925,6 +17941,20 @@ __metadata:
   dependencies:
     minipass: "npm:^7.0.3"
   checksum: 10c0/caddd5f544b2006e88fa6b0124d8d7b28208b83c72d7672d5ade44d794525d23b540f3396108c4eb9280dcb7c01f0bef50682f5b4b2c34291f7c5e211fd1417d
+  languageName: node
+  linkType: hard
+
+"sstv@npm:^1.0.0":
+  version: 1.0.0
+  resolution: "sstv@npm:1.0.0"
+  dependencies:
+    fft.js: "npm:^4.0.4"
+    minimist: "npm:^1.2.8"
+    pngjs: "npm:^7.0.0"
+    wav: "npm:^1.0.2"
+  bin:
+    sstv: dist/bin.js
+  checksum: 10c0/6891a091032c22e773509ffdbeb7987b148b3530b04a4980248b1a2cefb7fd859e8d674952d523b4794d08312abf6bec00524ab5e93dff7dce9651223c3ae06e
   languageName: node
   linkType: hard
 

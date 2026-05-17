@@ -192,6 +192,9 @@ export function getRadioSdrDragFrequencyStepHz(engineMode: EngineMode): number |
   if (engineMode === 'cw') {
     return RADIO_SDR_CW_DRAG_FREQUENCY_STEP_HZ;
   }
+  if (engineMode === 'sstv') {
+    return RADIO_SDR_CW_DRAG_FREQUENCY_STEP_HZ;
+  }
   return null;
 }
 
@@ -229,6 +232,16 @@ export function buildRadioSdrFrequencyRequest({
       frequency: roundedFrequency,
       mode: 'CW',
       radioMode: 'CW',
+      band: getBandFromFrequency(roundedFrequency),
+      description,
+    };
+  }
+
+  if (engineMode === 'sstv') {
+    return {
+      frequency: roundedFrequency,
+      mode: 'SSTV',
+      radioMode: currentRadioMode ?? 'USB',
       band: getBandFromFrequency(roundedFrequency),
       description,
     };

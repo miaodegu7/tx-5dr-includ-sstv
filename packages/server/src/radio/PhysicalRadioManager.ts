@@ -2313,6 +2313,26 @@ export class PhysicalRadioManager extends EventEmitter<PhysicalRadioManagerEvent
       return null;
     }
 
+    if (engineMode === 'sstv') {
+      const lastSSTV = this.configManager.getLastSSTVFrequency();
+      if (!lastSSTV) {
+        return null;
+      }
+      if (!isFrequencyInHamlibRange(lastSSTV.frequency)) {
+        logger.warn(
+          `Invalid saved SSTV frequency detected: ${lastSSTV.frequency} Hz ` +
+          `(valid range: ${HAMLIB_MIN_FREQUENCY_HZ}-${HAMLIB_MAX_FREQUENCY_HZ} Hz). ` +
+          'Clearing saved SSTV config to prevent recurrence.',
+        );
+        void this.configManager.clearLastSSTVFrequency().catch(err =>
+          logger.warn('Failed to clear invalid SSTV frequency from config:', err),
+        );
+        return null;
+      }
+      logger.info(`Restoring SSTV frequency during bootstrap: ${(lastSSTV.frequency / 1000000).toFixed(3)} MHz (${lastSSTV.description || 'SSTV'})`);
+      return lastSSTV.frequency;
+    }
+
     const lastDigital = this.configManager.getLastSelectedFrequency();
     if (!lastDigital) {
       return null;

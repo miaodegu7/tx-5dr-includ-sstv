@@ -464,6 +464,7 @@ export class SpectrumSessionCoordinator extends EventEmitter<SpectrumSessionCoor
     const engineMode = this.engine.getEngineMode();
     const isVoiceMode = engineMode === 'voice';
     const isCwMode = engineMode === 'cw';
+    const isSstvMode = engineMode === 'sstv';
     const sourceMode = this.mapRadioDisplayModeToSourceMode(display.mode);
     const isFixed = sourceMode === 'fixed' || sourceMode === 'scroll-fixed';
     const isDigital = engineMode === 'digital';
@@ -473,7 +474,10 @@ export class SpectrumSessionCoordinator extends EventEmitter<SpectrumSessionCoor
     const canCwSetFrequency = isCwMode
       && currentRadioFrequency !== null
       && display.displayRange !== null;
-    const canSetRadioFrequency = canVoiceSetFrequency || canCwSetFrequency;
+    const canSstvSetFrequency = isSstvMode
+      && currentRadioFrequency !== null
+      && display.displayRange !== null;
+    const canSetRadioFrequency = canVoiceSetFrequency || canCwSetFrequency || canSstvSetFrequency;
     const presetMarkers = isVoiceMode && display.displayRange
       ? this.resolveVoicePresetMarkers(display.displayRange.min, display.displayRange.max, canVoiceSetFrequency)
       : [];
@@ -532,7 +536,11 @@ export class SpectrumSessionCoordinator extends EventEmitter<SpectrumSessionCoor
         canDoubleClickSetFrequency: canSetRadioFrequency,
         canDragFrequency: canSetRadioFrequency && !isFixed,
         frequencyGestureTarget: isDigital ? 'operator-tx' : (canSetRadioFrequency ? 'radio-frequency' : null),
-        frequencyStepHz: isDigital ? 1 : (canVoiceSetFrequency ? VOICE_FREQUENCY_GESTURE_STEP_HZ : (canCwSetFrequency ? 10 : null)),
+        frequencyStepHz: isDigital
+          ? 1
+          : (canVoiceSetFrequency
+            ? VOICE_FREQUENCY_GESTURE_STEP_HZ
+            : (canCwSetFrequency || canSstvSetFrequency ? 10 : null)),
         // Voice preset markers are negotiated here so SDR preset rendering stays on the
         // same capability/session-state channel as the rest of the spectrum interactions.
         presetMarkers,
@@ -1221,7 +1229,7 @@ export class SpectrumSessionCoordinator extends EventEmitter<SpectrumSessionCoor
 
   private async ensureNonDigitalRadioFollowMode(): Promise<void> {
     const engineMode = this.engine.getEngineMode();
-    if (engineMode !== 'voice' && engineMode !== 'cw') {
+    if (engineMode !== 'voice' && engineMode !== 'cw' && engineMode !== 'sstv') {
       return;
     }
 

@@ -225,7 +225,7 @@ describe('DigitalRadioEngine mode switching', () => {
 
 
   function createEngineModeSwitchHarness(options: {
-    initialEngineMode: 'digital' | 'voice' | 'cw';
+    initialEngineMode: 'digital' | 'voice' | 'cw' | 'sstv';
     initialMode: typeof MODES.FT8 | typeof MODES.FT4 | typeof MODES.VOICE | typeof MODES.CW;
     engineState: EngineState;
   }) {

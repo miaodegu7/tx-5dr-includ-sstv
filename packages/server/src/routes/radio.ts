@@ -58,11 +58,19 @@ function describeHardware(config: HamlibConfig): string {
   }
 }
 
-function inferModeOptions(appMode: string | undefined, engineMode: 'digital' | 'voice' | 'cw'): SetRadioModeOptions {
+function inferModeOptions(appMode: string | undefined, engineMode: 'digital' | 'voice' | 'cw' | 'sstv'): SetRadioModeOptions {
   const normalizedAppMode = appMode?.trim().toUpperCase();
 
   if (normalizedAppMode === 'VOICE') {
     return { intent: 'voice' };
+  }
+
+  if (normalizedAppMode === 'CW') {
+    return { intent: 'cw' };
+  }
+
+  if (normalizedAppMode === 'SSTV') {
+    return { intent: 'digital' };
   }
 
   if (normalizedAppMode === 'FT8' || normalizedAppMode === 'FT4') {
@@ -316,11 +324,13 @@ export async function radioRoutes(fastify: FastifyInstance) {
     const lastFrequency = configManager.getLastSelectedFrequency();
     const lastVoiceFrequency = configManager.getLastVoiceFrequency();
     const lastCWFrequency = configManager.getLastCWFrequency();
+    const lastSSTVFrequency = configManager.getLastSSTVFrequency();
     return reply.send({
       success: true,
       lastFrequency,
       lastVoiceFrequency,
       lastCWFrequency,
+      lastSSTVFrequency,
     });
   });
 
@@ -364,7 +374,15 @@ export async function radioRoutes(fastify: FastifyInstance) {
     }
 
     const effectiveMode = mode
-      || (engine.getEngineMode() === 'voice' ? 'VOICE' : engine.getEngineMode() === 'cw' ? 'CW' : 'FT8');
+      || (
+        engine.getEngineMode() === 'voice'
+          ? 'VOICE'
+          : engine.getEngineMode() === 'cw'
+            ? 'CW'
+            : engine.getEngineMode() === 'sstv'
+              ? 'SSTV'
+              : 'FT8'
+      );
     const isVoiceFrequencyRequest = effectiveMode === 'VOICE';
     const isVoiceFmFrequencyRequest = isVoiceFrequencyRequest && radioMode?.toUpperCase() === 'FM';
     const repeaterDuplexToApply: RepeaterDuplexConfig = isVoiceFmFrequencyRequest
@@ -379,8 +397,10 @@ export async function radioRoutes(fastify: FastifyInstance) {
       ? configManager.getLastVoiceFrequency()
       : effectiveMode === 'CW'
         ? configManager.getLastCWFrequency()
+        : effectiveMode === 'SSTV'
+          ? configManager.getLastSSTVFrequency()
         : configManager.getLastSelectedFrequency();
-    const lastMode = effectiveMode === 'VOICE' || effectiveMode === 'CW'
+    const lastMode = effectiveMode === 'VOICE' || effectiveMode === 'CW' || effectiveMode === 'SSTV'
       ? effectiveMode
       : (lastFrequency as { mode?: string } | null | undefined)?.mode;
     const isFrequencyChanged = !lastFrequency ||
@@ -411,6 +431,13 @@ export async function radioRoutes(fastify: FastifyInstance) {
           });
         } else if (effectiveMode === 'CW') {
           await configManager.updateLastCWFrequency({
+            frequency,
+            radioMode,
+            band,
+            description,
+          });
+        } else if (effectiveMode === 'SSTV') {
+          await configManager.updateLastSSTVFrequency({
             frequency,
             radioMode,
             band,

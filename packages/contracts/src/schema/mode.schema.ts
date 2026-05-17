@@ -71,6 +71,14 @@ export const MODES = {
     transmitTiming: 0,
     encodeAdvance: 0,
   } as ModeDescriptor,
+  SSTV: {
+    name: 'SSTV',
+    slotMs: 0,
+    toleranceMs: 0,
+    windowTiming: [],
+    transmitTiming: 0,
+    encodeAdvance: 0,
+  } as ModeDescriptor,
 } as const;
 
 /**

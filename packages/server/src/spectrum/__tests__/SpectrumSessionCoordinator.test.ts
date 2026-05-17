@@ -4,7 +4,7 @@ import { SpectrumSessionCoordinator } from '../SpectrumSessionCoordinator.js';
 import { IcomWlanConnection } from '../../radio/connections/IcomWlanConnection.js';
 
 class MockEngine extends EventEmitter<Record<string, never>> {
-  engineMode: 'digital' | 'voice' | 'cw' = 'digital';
+  engineMode: 'digital' | 'voice' | 'cw' | 'sstv' = 'digital';
   currentModeName: 'FT8' | 'FT4' | 'VOICE' | 'CW' = 'FT8';
 
   readonly radioManager = {

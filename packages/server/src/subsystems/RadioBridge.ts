@@ -250,16 +250,24 @@ export class RadioBridge {
     const band = this.resolveBandLabel(frequency);
     const isVoiceMode = engineMode === 'voice';
     const isCWMode = engineMode === 'cw';
+    const isSSTVMode = engineMode === 'sstv';
     const lastVoiceFrequency = isVoiceMode ? ConfigManager.getInstance().getLastVoiceFrequency() : null;
     const lastCWFrequency = isCWMode ? ConfigManager.getInstance().getLastCWFrequency() : null;
+    const lastSSTVFrequency = isSSTVMode ? ConfigManager.getInstance().getLastSSTVFrequency() : null;
     const supportsFmOptions = lastVoiceFrequency?.radioMode?.toUpperCase() === 'FM';
     const digitalModeName = this.deps.getCurrentModeName?.() || 'FT8';
 
     return {
       frequency,
-      mode: isVoiceMode ? 'VOICE' : isCWMode ? 'CW' : digitalModeName,
+      mode: isVoiceMode ? 'VOICE' : isCWMode ? 'CW' : isSSTVMode ? 'SSTV' : digitalModeName,
       band,
-      radioMode: isVoiceMode ? lastVoiceFrequency?.radioMode : isCWMode ? (lastCWFrequency?.radioMode || 'CW') : undefined,
+      radioMode: isVoiceMode
+        ? lastVoiceFrequency?.radioMode
+        : isCWMode
+          ? (lastCWFrequency?.radioMode || 'CW')
+          : isSSTVMode
+            ? (lastSSTVFrequency?.radioMode || 'USB')
+            : undefined,
       description: `${(frequency / 1000000).toFixed(3)} MHz${band !== 'Unknown' ? ` ${band}` : ''}`,
       repeaterShift: supportsFmOptions ? lastVoiceFrequency?.repeaterShift : undefined,
       repeaterOffsetHz: supportsFmOptions ? lastVoiceFrequency?.repeaterOffsetHz : undefined,
@@ -279,7 +287,9 @@ export class RadioBridge {
       ? 'VOICE'
       : engineMode === 'cw'
         ? 'CW'
-        : this.deps.getCurrentModeName?.();
+        : engineMode === 'sstv'
+          ? 'SSTV'
+          : this.deps.getCurrentModeName?.();
     let closestPreset: PresetFrequency | null = null;
     let smallestDiff = Infinity;
 
@@ -336,6 +346,16 @@ export class RadioBridge {
 
     if (frequencyInfo.mode === 'CW') {
       await configManager.updateLastCWFrequency({
+        frequency: frequencyInfo.frequency,
+        radioMode: frequencyInfo.radioMode,
+        band: frequencyInfo.band,
+        description: frequencyInfo.description,
+      });
+      return;
+    }
+
+    if (frequencyInfo.mode === 'SSTV') {
+      await configManager.updateLastSSTVFrequency({
         frequency: frequencyInfo.frequency,
         radioMode: frequencyInfo.radioMode,
         band: frequencyInfo.band,

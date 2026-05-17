@@ -87,6 +87,8 @@ export const WS_MESSAGE_EVENT_MAP: Record<string, string> = {
   [WSMessageType.CW_CONFIG_CHANGED]: 'cwConfigChanged',
   [WSMessageType.CW_DECODER_STATUS]: 'cwDecoderStatusChanged',
   [WSMessageType.CW_DECODER_EVENT]: 'cwDecoderEvent',
+  [WSMessageType.SSTV_DECODER_STATUS]: 'sstvDecoderStatusChanged',
+  [WSMessageType.SSTV_DECODER_EVENT]: 'sstvDecoderEvent',
 
   // 进程监控事件
   [WSMessageType.PROCESS_SNAPSHOT]: 'processSnapshot',

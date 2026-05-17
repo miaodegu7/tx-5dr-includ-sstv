@@ -29,6 +29,13 @@ import type { VoicePTTLock } from './voice.schema.js';
 import type { VoiceKeyerStatus } from './voice-keyer.schema.js';
 import type { CWKeyerStatus, CWKeyerConfig } from './cw-keyer.schema.js';
 import { CWDecoderEventSchema, CWDecoderStatusSchema, type CWDecoderEvent, type CWDecoderStatus } from './cw-decoder.schema.js';
+import {
+  SSTVDecoderEventSchema,
+  SSTVDecoderStatusSchema,
+  SSTVTxPreparePayloadSchema,
+  type SSTVDecoderEvent,
+  type SSTVDecoderStatus,
+} from './sstv.schema.js';
 import { CapabilityListSchema, CapabilityStateSchema, WriteCapabilityPayloadSchema } from './radio-capability.schema.js';
 import { RadioPowerStateEventSchema } from './radio-power.schema.js';
 import { AudioSidecarStatusPayloadSchema } from './audio-sidecar.schema.js';
@@ -195,6 +202,9 @@ export enum WSMessageType {
   CW_DECODER_STATUS = 'cwDecoderStatus',
   /** CW 解码器增量事件（server → client） */
   CW_DECODER_EVENT = 'cwDecoderEvent',
+  SSTV_DECODER_STATUS = 'sstvDecoderStatus',
+  SSTV_DECODER_EVENT = 'sstvDecoderEvent',
+  SSTV_TX_PREPARE = 'sstvTxPrepare',
 
   // ===== 进程监控 =====
   PROCESS_SNAPSHOT = 'processSnapshot',
@@ -237,7 +247,7 @@ export const SystemStatusSchema = z.object({
     connectionHealthy: z.boolean(),
   }).optional(),
   /** 引擎模式：digital（FT8/FT4）、voice（语音通联）或 cw（莫尔斯码） */
-  engineMode: z.enum(['digital', 'voice', 'cw']).default('digital'),
+  engineMode: z.enum(['digital', 'voice', 'cw', 'sstv']).default('digital'),
   /** 当前电台调制模式（语音模式下使用，如 USB/LSB/FM/AM） */
   currentRadioMode: z.string().optional(),
   /** 引擎状态机当前状态 */
@@ -1210,6 +1220,27 @@ export const WSCWDecoderEventMessageSchema = WSBaseMessageSchema.extend({
 
 export type WSCWDecoderEventMessage = z.infer<typeof WSCWDecoderEventMessageSchema>;
 
+export const WSSSTVDecoderStatusMessageSchema = WSBaseMessageSchema.extend({
+  type: z.literal(WSMessageType.SSTV_DECODER_STATUS),
+  data: SSTVDecoderStatusSchema,
+});
+
+export type WSSSTVDecoderStatusMessage = z.infer<typeof WSSSTVDecoderStatusMessageSchema>;
+
+export const WSSSTVDecoderEventMessageSchema = WSBaseMessageSchema.extend({
+  type: z.literal(WSMessageType.SSTV_DECODER_EVENT),
+  data: SSTVDecoderEventSchema,
+});
+
+export type WSSSTVDecoderEventMessage = z.infer<typeof WSSSTVDecoderEventMessageSchema>;
+
+export const WSSSTVTxPrepareMessageSchema = WSBaseMessageSchema.extend({
+  type: z.literal(WSMessageType.SSTV_TX_PREPARE),
+  data: SSTVTxPreparePayloadSchema,
+});
+
+export type WSSSTVTxPrepareMessage = z.infer<typeof WSSSTVTxPrepareMessageSchema>;
+
 // ===== 统一电台控制能力消息 =====
 
 /**
@@ -1452,6 +1483,9 @@ export const WSMessageSchema = z.discriminatedUnion('type', [
   // CW 解码器消息
   WSCWDecoderStatusMessageSchema,
   WSCWDecoderEventMessageSchema,
+  WSSSTVDecoderStatusMessageSchema,
+  WSSSTVDecoderEventMessageSchema,
+  WSSSTVTxPrepareMessageSchema,
 
   // 认证消息
   WSAuthRequiredMessageSchema,
@@ -1632,6 +1666,8 @@ export interface DigitalRadioEngineEvents {
   cwConfigChanged: (data: CWKeyerConfig) => void;
   cwDecoderStatusChanged: (data: CWDecoderStatus) => void;
   cwDecoderEvent: (data: CWDecoderEvent) => void;
+  sstvDecoderStatusChanged: (data: SSTVDecoderStatus) => void;
+  sstvDecoderEvent: (data: SSTVDecoderEvent) => void;
 
   // 进程监控事件
   processSnapshot: (data: import('./process-monitor.schema.js').ProcessSnapshot) => void;

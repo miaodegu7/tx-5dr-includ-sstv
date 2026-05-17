@@ -59,6 +59,7 @@ const MODE_SELECT_MIN_WIDTH_PX = 92;
 const MODE_SELECT_MAX_WIDTH_PX = 160;
 const CUSTOM_FREQUENCY_ACTION_KEY = '__custom__';
 const CURRENT_CUSTOM_FREQUENCY_KEY = '__custom_frequency__';
+const OTHER_MODES_GROUP_KEY = '__other_modes_group__';
 const CUSTOM_BAND = 'custom';
 const VOICE_TX_BUFFER_PROFILES: VoiceTxBufferProfile[] = [
   'auto',
@@ -642,6 +643,9 @@ export const RadioControl: React.FC<RadioControlProps> = ({ onOpenRadioSettings,
     if (modeName === 'CW') {
       return 'CW';
     }
+    if (modeName === 'SSTV') {
+      return 'SSTV';
+    }
     return modeName;
   }, [t]);
 
@@ -1041,6 +1045,9 @@ export const RadioControl: React.FC<RadioControlProps> = ({ onOpenRadioSettings,
     }
 
     const selectedModeName = Array.from(keys)[0] as string;
+    if (!selectedModeName || selectedModeName === OTHER_MODES_GROUP_KEY) {
+      return;
+    }
 
     // Handle VOICE mode switch via WSClient (not REST API, since VOICE is not a ModeDescriptor)
     if (selectedModeName === 'VOICE') {
@@ -1063,6 +1070,18 @@ export const RadioControl: React.FC<RadioControlProps> = ({ onOpenRadioSettings,
         logger.info('Mode switch requested: CW');
       } catch (error) {
         logger.error('Failed to switch to CW mode:', error);
+      }
+      return;
+    }
+
+    // Handle SSTV mode switch via WSClient
+    if (selectedModeName === 'SSTV') {
+      try {
+        connection.state.radioService?.wsClientInstance.setMode({ name: 'SSTV' } as ModeDescriptor);
+        resetOperatorsAfterOperatingStateChange();
+        logger.info('Mode switch requested: SSTV');
+      } catch (error) {
+        logger.error('Failed to switch to SSTV mode:', error);
       }
       return;
     }
@@ -1441,7 +1460,7 @@ export const RadioControl: React.FC<RadioControlProps> = ({ onOpenRadioSettings,
   const frequencySelectLabel = selectedFrequencyOption?.label
     || (radioMode.currentMode ? `${radioMode.currentMode.name} ${t('control.frequency')}` : t('control.frequency'));
 
-  const modeOptions = React.useMemo(() => {
+  const { primaryModeOptions, otherModeOptions } = React.useMemo(() => {
     const modes = (availableModes || []).filter(mode => mode && mode.name);
 
     const result = [...modes];
@@ -1451,13 +1470,22 @@ export const RadioControl: React.FC<RadioControlProps> = ({ onOpenRadioSettings,
     if (!modes.some(mode => mode.name === 'CW')) {
       result.unshift({ name: 'CW' } as ModeDescriptor);
     }
-    return result;
+    if (!modes.some(mode => mode.name === 'SSTV')) {
+      result.push({ name: 'SSTV' } as ModeDescriptor);
+    }
+
+    return {
+      primaryModeOptions: result.filter((mode) => mode.name !== 'SSTV'),
+      otherModeOptions: result.filter((mode) => mode.name === 'SSTV'),
+    };
   }, [availableModes]);
 
   const modeSelectLabel = radioMode.engineMode === 'voice'
     ? getModeDisplayLabel('VOICE')
     : radioMode.engineMode === 'cw'
       ? getModeDisplayLabel('CW')
+      : radioMode.engineMode === 'sstv'
+        ? getModeDisplayLabel('SSTV')
       : (radioMode.currentMode?.name ? getModeDisplayLabel(radioMode.currentMode.name) : (modeError || t('mode.placeholder')));
 
   const { measureRef: frequencyMeasureRef, width: frequencySelectWidth } = useMeasuredSelectWidth(
@@ -2305,7 +2333,13 @@ export const RadioControl: React.FC<RadioControlProps> = ({ onOpenRadioSettings,
               labelPlacement="outside"
               placeholder={modeError || t('mode.placeholder')}
               selectorIcon={<SelectorIcon />}
-              selectedKeys={radioMode.engineMode === 'voice' ? ['VOICE'] : (radioMode.currentMode ? [radioMode.currentMode.name] : [])}
+              selectedKeys={
+                radioMode.engineMode === 'voice'
+                  ? ['VOICE']
+                  : radioMode.engineMode === 'sstv'
+                    ? ['SSTV']
+                    : (radioMode.currentMode ? [radioMode.currentMode.name] : [])
+              }
               variant="flat"
               size="md"
               radius="md"
@@ -2324,7 +2358,26 @@ export const RadioControl: React.FC<RadioControlProps> = ({ onOpenRadioSettings,
                 <span className="font-bold text-lg">{modeSelectLabel}</span>
               )}
             >
-              {modeOptions.map((mode) => (
+              {primaryModeOptions.map((mode) => (
+                <SelectItem
+                  key={mode.name}
+                  textValue={getModeDisplayLabel(mode.name)}
+                  className="text-xs py-1 px-2 min-h-6"
+                >
+                  {getModeDisplayLabel(mode.name)}
+                </SelectItem>
+              ))}
+              {otherModeOptions.length > 0 && (
+                <SelectItem
+                  key={OTHER_MODES_GROUP_KEY}
+                  textValue={t('control.mode')}
+                  className="text-[11px] py-1 px-2 min-h-5 text-default-400"
+                  isDisabled
+                >
+                  其他模式
+                </SelectItem>
+              )}
+              {otherModeOptions.map((mode) => (
                 <SelectItem
                   key={mode.name}
                   textValue={getModeDisplayLabel(mode.name)}

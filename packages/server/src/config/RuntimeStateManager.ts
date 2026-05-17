@@ -32,13 +32,21 @@ export interface LastCWFrequencyState {
   description?: string;
 }
 
+export interface LastSSTVFrequencyState {
+  frequency: number;
+  radioMode?: string;
+  band: string;
+  description?: string;
+}
+
 export interface RuntimeState {
   lastSelectedFrequency?: LastSelectedFrequencyState | null;
   lastVoiceFrequency?: LastVoiceFrequencyState | null;
   lastCWFrequency?: LastCWFrequencyState | null;
+  lastSSTVFrequency?: LastSSTVFrequencyState | null;
   lastVolumeGain?: { gain: number; gainDb: number } | null;
   volumeGainMap?: Record<string, { gain: number; gainDb: number }> | null;
-  lastEngineMode?: 'digital' | 'voice' | 'cw';
+  lastEngineMode?: 'digital' | 'voice' | 'cw' | 'sstv';
   lastDigitalModeName?: string;
   pskreporterStats?: Partial<PSKReporterStats>;
   authLastUsedAt?: Record<string, number>;

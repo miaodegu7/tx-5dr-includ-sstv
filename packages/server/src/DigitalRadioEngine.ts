@@ -27,6 +27,8 @@ import {
   type CWDecoderBackendDescriptor,
   type CWDecoderRuntimeBackend,
   type PresetFrequency,
+  type SSTVDecoderStatus,
+  type SSTVTxPreparePayload,
   resolveWindowTiming,
 } from '@tx5dr/contracts';
 import { EventEmitter } from 'eventemitter3';
@@ -89,6 +91,7 @@ import { PhysicalPttMonitor } from './radio/PhysicalPttMonitor.js';
 import type { RigctldBridgeConfig, RigctldStatus } from '@tx5dr/contracts';
 import { RadioPowerController } from './radio/RadioPowerController.js';
 import { TuneToneController } from './radio/TuneToneController.js';
+import { SSTVManager, type SSTVTxAudioPayload } from './sstv/index.js';
 import path from 'node:path';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -220,6 +223,7 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
   // CW 模式
   private cwKeyerManager: CWKeyerManager | null = null;
   private cwDecoderManager: CWDecoderManager | null = null;
+  private sstvManager: SSTVManager | null = null;
   private cwDecoderStartedEngine = false;
   private modeSwitchTail: Promise<void> = Promise.resolve();
 
@@ -240,6 +244,7 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
   private voiceKeyerPttActive = false;
   private physicalPttActive = false;
   private unifiedVoicePttActive = false;
+  private sstvTxActive = false;
   private releaseCwPttPolling: (() => void) | null = null;
   private radioPowerController: RadioPowerController | null = null;
   private tuneToneController: TuneToneController;
@@ -267,6 +272,16 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
       },
     );
     this.audioStreamManager = new AudioStreamManager({ now: () => this.clockSource.now() });
+    this.sstvManager = new SSTVManager(this.audioStreamManager, {
+      onTransmitAudio: async (txPayload) => this.transmitSSTVAudio(txPayload),
+    });
+    this.sstvManager.start();
+    this.sstvManager.on('sstvDecoderStatusChanged', (status) => {
+      this.emit('sstvDecoderStatusChanged', status);
+    });
+    this.sstvManager.on('sstvDecoderEvent', (event) => {
+      this.emit('sstvDecoderEvent', event);
+    });
     this.realDecodeQueue = new WSJTXDecodeWorkQueue();
     const decodeWorkerEvents = this as unknown as DecodeWorkerEngineEmitter;
     this.realDecodeQueue.on('decodeWorkerUnavailable', (status) => {
@@ -877,6 +892,24 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
     return contractStatus;
   }
 
+  public getSSTVStatus(): SSTVDecoderStatus {
+    return this.sstvManager?.getStatus() ?? {
+      enabled: false,
+      state: 'stopped',
+      backend: 'vis-heuristic',
+      lastDetectedMode: null,
+      lastVisCode: null,
+      confidence: 0,
+      signalHz: null,
+      lastDetectedAt: null,
+      lastError: null,
+    };
+  }
+
+  public async prepareSSTVTx(payload: SSTVTxPreparePayload): Promise<void> {
+    await this.sstvManager?.prepareTx(payload);
+  }
+
   public getNtpCalibrationService(): NtpCalibrationService {
     return this.ntpCalibrationService;
   }
@@ -1075,7 +1108,7 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
 
     if (lastEngineMode === 'digital' && lastDigitalModeName && lastDigitalModeName !== this.currentMode.name) {
       const targetMode = Object.values(MODES).find(m => m.name === lastDigitalModeName);
-      if (targetMode && targetMode.name !== 'VOICE' && targetMode.name !== 'CW') {
+      if (targetMode && targetMode.name !== 'VOICE' && targetMode.name !== 'CW' && targetMode.name !== 'SSTV') {
         this.currentMode = targetMode;
         this.applyDecodeWindowOverrides();
         this.slotClock?.setMode(this.currentMode);
@@ -1094,8 +1127,15 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
       this.slotClock?.setMode(this.currentMode);
       this.slotPackManager.setMode(this.currentMode);
       logger.info('Restored last engine mode: cw');
+    } else if (lastEngineMode === 'sstv') {
+      this.engineMode = 'sstv';
+      this.currentMode = MODES.SSTV;
+      this.slotClock?.setMode(this.currentMode);
+      this.slotPackManager.setMode(this.currentMode);
+      logger.info('Restored last engine mode: sstv');
     }
 
+    this.sstvManager?.setEnabled(this.engineMode === 'sstv');
     this.configureAudioProcessingForCurrentMode('restore-mode');
   }
 
@@ -1219,6 +1259,12 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
       this.cwDecoderManager = null;
       logger.info('CW decoder manager destroyed');
     }
+    if (this.sstvManager) {
+      this.sstvManager.stop();
+      this.sstvManager.removeAllListeners();
+      this.sstvManager = null;
+      logger.info('SSTV manager destroyed');
+    }
 
     // 清理操作员管理器
     this.operatorManager.cleanup();
@@ -1287,6 +1333,17 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
   async setMode(mode: ModeDescriptor | string): Promise<void> {
     const runSwitch = async () => {
       await this.stopTuneTone('mode changed');
+      // Handle SSTV mode
+      if (mode === 'SSTV' || (typeof mode === 'object' && mode.name === 'SSTV')) {
+        if (this.engineMode === 'sstv') {
+          logger.info('Already in SSTV mode');
+          this.emitStatusSnapshot();
+          return;
+        }
+        await this.switchEngineMode('sstv', MODES.SSTV);
+        return;
+      }
+
       // Handle CW mode
       if (typeof mode === 'object' && mode.name === 'CW') {
         if (this.engineMode === 'cw') {
@@ -1319,6 +1376,12 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
 
       // If switching from CW to digital
       if (this.engineMode === 'cw') {
+        await this.switchEngineMode('digital', digitalMode);
+        return;
+      }
+
+      // If switching from SSTV to digital
+      if (this.engineMode === 'sstv') {
         await this.switchEngineMode('digital', digitalMode);
         return;
       }
@@ -1611,6 +1674,7 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
 
     this.engineMode = targetEngineMode;
     this.currentMode = targetMode;
+    this.sstvManager?.setEnabled(targetEngineMode === 'sstv');
     this.configureAudioProcessingForCurrentMode?.('mode-switch');
 
     if (targetEngineMode === 'digital') {
@@ -1638,6 +1702,8 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
       await this.restoreLastVoiceOperatingState(configManager);
     } else if (goingToCW) {
       await this.restoreLastCWOperatingState(configManager);
+    } else if (targetEngineMode === 'sstv') {
+      await this.restoreLastSSTVOperatingState(configManager);
     } else if (targetEngineMode === 'digital') {
       await this.restoreLastDigitalOperatingState(configManager, targetMode);
     }
@@ -1767,6 +1833,59 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
     }
   }
 
+  private async restoreLastSSTVOperatingState(configManager: ConfigManager): Promise<void> {
+    if (!this.radioManager.isConnected()) {
+      return;
+    }
+
+    const lastSSTV = configManager.getLastSSTVFrequency();
+    let targetFrequency: number | null = lastSSTV?.frequency ?? null;
+    let targetRadioMode: string | undefined = lastSSTV?.radioMode || 'USB';
+
+    if (!targetFrequency || targetFrequency <= 0) {
+      targetFrequency = await this.radioManager.getFrequency();
+      if (!targetFrequency || targetFrequency <= 0) {
+        logger.warn('Cannot restore SSTV operating state: no saved frequency and failed to read current frequency');
+        return;
+      }
+      logger.info(`No saved SSTV frequency, keeping current frequency for SSTV: ${(targetFrequency / 1000000).toFixed(3)} MHz`);
+    }
+
+    try {
+      const applyResult = await this.radioManager.applyOperatingState({
+        frequency: targetFrequency,
+        mode: targetRadioMode,
+        bandwidth: targetRadioMode ? 'nochange' : undefined,
+        options: targetRadioMode ? { intent: 'digital' } : undefined,
+        tolerateModeFailure: true,
+      });
+
+      if (!applyResult.frequencyApplied) {
+        logger.warn(`Failed to restore SSTV frequency: ${(targetFrequency / 1000000).toFixed(3)} MHz`);
+        return;
+      }
+
+      if (applyResult.modeError) {
+        logger.warn(`Restored SSTV frequency but failed to set radio mode: ${applyResult.modeError.message}`);
+      }
+
+      const band = this.resolveBandLabel(targetFrequency);
+      const description = lastSSTV?.description || `${(targetFrequency / 1000000).toFixed(3)} MHz${band !== 'Unknown' ? ` ${band}` : ''}`;
+      this.emit('frequencyChanged', {
+        frequency: targetFrequency,
+        mode: 'SSTV',
+        band,
+        description,
+        radioMode: targetRadioMode,
+        radioConnected: true,
+        source: 'program',
+      });
+      logger.info(`Restored SSTV operating state: ${description}${targetRadioMode ? ` (${targetRadioMode})` : ''}`);
+    } catch (error) {
+      logger.warn(`Failed to restore SSTV operating state: ${(error as Error).message}`);
+    }
+  }
+
   private resolveBandLabel(frequency: number): string {
     try {
       return getBandFromFrequency(frequency);
@@ -1790,6 +1909,58 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
     return this.transmissionPipeline.getIsPTTActive()
       || this.unifiedVoicePttActive
       || this.physicalPttActive;
+  }
+
+  private isTransmitBusyForSSTV(): boolean {
+    return this.sstvTxActive
+      || this.tuneToneController.getStatus().active
+      || this.isTransmitBusyForTuneTone();
+  }
+
+  private async transmitSSTVAudio(payload: SSTVTxAudioPayload): Promise<void> {
+    if (this.engineMode !== 'sstv') {
+      throw new Error('SSTV TX requires engine mode "sstv"');
+    }
+    if (this.isTransmitBusyForSSTV()) {
+      throw new Error('Transmitter is busy');
+    }
+
+    this.sstvTxActive = true;
+    let pttAsserted = false;
+    const txId = `sstv-${payload.preparedAt}-${payload.mode}`;
+
+    try {
+      await this.stopTuneTone('sstv transmission started');
+
+      if (this.radioManager.isConnected()) {
+        await this.radioManager.setPTT(true);
+        pttAsserted = true;
+      } else {
+        logger.warn('SSTV TX started while radio is disconnected');
+      }
+
+      this.setTuneTonePttActive(true);
+      await this.audioStreamManager.playAudio(payload.samples, payload.sampleRate, {
+        injectIntoMonitor: true,
+        playbackKind: 'digital',
+        diagnosticContext: {
+          txId,
+          mode: payload.mode,
+          callsign: payload.callsign,
+          durationMs: payload.durationMs,
+        },
+      });
+    } finally {
+      if (pttAsserted && this.radioManager.isConnected()) {
+        try {
+          await this.radioManager.setPTT(false);
+        } catch (error) {
+          logger.warn('SSTV TX failed to release PTT cleanly', { error: (error as Error).message });
+        }
+      }
+      this.setTuneTonePttActive(false);
+      this.sstvTxActive = false;
+    }
   }
 
   private setTuneTonePttActive(active: boolean): void {
@@ -1991,7 +2162,7 @@ export class DigitalRadioEngine extends EventEmitter<DigitalRadioEngineEvents> {
   public getStatus() {
     const isRunning = this.engineLifecycle?.getIsRunning() ?? false;
     // Voice and CW modes have no decode slot loop, so mirror engine running state.
-    const isActuallyDecoding = this.engineMode === 'voice' || this.engineMode === 'cw'
+    const isActuallyDecoding = this.engineMode === 'voice' || this.engineMode === 'cw' || this.engineMode === 'sstv'
       ? isRunning
       : isRunning && (this.slotClock?.isRunning ?? false);
 

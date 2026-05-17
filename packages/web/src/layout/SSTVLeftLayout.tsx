@@ -1,0 +1,115 @@
+import React, { useEffect, useState } from 'react';
+import { Button, Card, CardBody } from '@heroui/react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faGithub } from '@fortawesome/free-brands-svg-icons';
+import { SpectrumDisplay } from '../components/radio/spectrum/SpectrumDisplay';
+import { RadioMetersDisplay } from '../components/radio/control/RadioMetersDisplay';
+import { RemoteAccessPopover } from '../components/system/RemoteAccessPopover';
+import { ClockDisplay } from '../components/system/ClockDisplay';
+import { StationInfoPopover } from '../components/station/StationInfoPopover';
+import { AppBrandAboutLink } from '../components/common/AppBrandAboutLink';
+import { useConnection, useRadioState, useStationInfo } from '../store/radioStore';
+import { useHasMinRole } from '../store/authStore';
+import { UserRole } from '@tx5dr/contracts';
+import { isElectron, isMacOS } from '../utils/config';
+import { EMPTY_METER_DATA, shouldShowRadioMetersPanel } from '../utils/radioMeters';
+import { SSTVRxPanel } from '../components/sstv/SSTVRxPanel';
+
+export const SSTVLeftLayout: React.FC = () => {
+  const isAdmin = useHasMinRole(UserRole.ADMIN);
+  const radio = useRadioState();
+  const connection = useConnection();
+  const stationInfo = useStationInfo();
+  const hasStationContent = !!(stationInfo?.callsign || stationInfo?.name || stationInfo?.qth?.grid || stationInfo?.description);
+  const [isMobile, setIsMobile] = useState(false);
+  const [clientCount, setClientCount] = useState(0);
+  const showRadioMeters = shouldShowRadioMetersPanel({
+    radioConnected: radio.state.radioConnected,
+    radioConfigType: radio.state.radioConfig?.type,
+    meterCapabilities: radio.state.meterCapabilities,
+    hasReceivedMeterData: radio.state.hasReceivedMeterData,
+  });
+  const stationInfoOffsetClassName = isElectron() && isMacOS()
+    ? 'pl-16'
+    : (isMobile && hasStationContent ? 'pl-0' : 'pl-2');
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(max-width: 767px)');
+    setIsMobile(mediaQuery.matches);
+    const handleChange = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
+  }, []);
+
+  useEffect(() => {
+    const radioService = connection.state.radioService;
+    if (!radioService) return;
+    const wsClient = radioService.wsClientInstance;
+    const handleClientCount = (data: { count: number }) => setClientCount(data.count);
+    wsClient.onWSEvent('clientCountChanged', handleClientCount);
+    return () => { wsClient.offWSEvent('clientCountChanged', handleClientCount); };
+  }, [connection.state.radioService]);
+
+  return (
+    <div className="h-full flex flex-col">
+      <div
+        className="flex-shrink-0 flex justify-between items-center p-1 px-2 md:p-2 md:px-3 cursor-default select-none"
+        style={{ WebkitAppRegion: 'drag' } as React.CSSProperties & { WebkitAppRegion: string }}
+      >
+        <div className="flex items-center">
+          {!isElectron() && !(isMobile && hasStationContent) && (
+            <div className="text-lg font-bold text-foreground cursor-default select-none pl-2 flex items-center gap-1">
+              <AppBrandAboutLink />
+              <Button
+                onPress={() => window.open('https://github.com/boybook/tx-5dr', '_blank')}
+                isIconOnly
+                variant="light"
+                size="sm"
+                title="Github"
+                aria-label="Github"
+              >
+                <FontAwesomeIcon icon={faGithub} className="text-default-400 text-sm" />
+              </Button>
+            </div>
+          )}
+          <div
+            className={stationInfoOffsetClassName}
+            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties & { WebkitAppRegion: string }}
+          >
+            <StationInfoPopover />
+          </div>
+        </div>
+        <div className="flex items-center gap-1" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties & { WebkitAppRegion: string }}>
+          {isAdmin && <RemoteAccessPopover clientCount={clientCount} />}
+          <ClockDisplay />
+        </div>
+      </div>
+
+      <div className="flex-1 px-2 pb-2 md:px-5 md:pb-5 min-h-0 flex flex-col gap-2 md:gap-3">
+        <Card shadow="sm" className="flex-shrink-0 overflow-hidden">
+          <CardBody className="p-0 overflow-hidden">
+            <SpectrumDisplay
+              height={isMobile ? 100 : 148}
+              showMarkers={false}
+            />
+          </CardBody>
+        </Card>
+
+        <div className="flex-1 min-h-0">
+          <SSTVRxPanel />
+        </div>
+
+        {showRadioMeters && (
+          <div className="flex-shrink-0">
+            <RadioMetersDisplay
+              meterData={radio.state.meterData || EMPTY_METER_DATA}
+              isPttActive={radio.state.pttStatus.isTransmitting}
+              meterCapabilities={radio.state.meterCapabilities}
+              enableAlcOverLimitPrompt={false}
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};

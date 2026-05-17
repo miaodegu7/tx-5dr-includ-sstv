@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // WebSocket服务器 - 事件处理和消息传递需要使用any类型以保持灵活性
 
-import { ServerMessageKey, WSMessageType, RadioConnectionStatus, UserRole, WriteCapabilityPayloadSchema, TuneToneStartPayloadSchema, type AppAction, type AppSubject } from '@tx5dr/contracts';
+import { ServerMessageKey, WSMessageType, RadioConnectionStatus, UserRole, WriteCapabilityPayloadSchema, TuneToneStartPayloadSchema, SSTVTxPreparePayloadSchema, type AppAction, type AppSubject } from '@tx5dr/contracts';
 import type {
   ClockStatusSummary,
   DecodeErrorInfo,
@@ -427,6 +427,7 @@ export class WSServer extends WSMessageHandler {
       [WSMessageType.CW_TEXT_INPUT]: (data, id) => this.handleCWTextInput(id, data),
       [WSMessageType.CW_PLAY_MESSAGE]: (data, id) => this.handleCWPlayMessage(id, data),
       [WSMessageType.CW_STOP_MESSAGE]: () => this.handleCWStopMessage(),
+      [WSMessageType.SSTV_TX_PREPARE]: async (data) => this.handleSSTVTxPrepare(data),
       [WSMessageType.OPENWEBRX_PROFILE_SELECT_RESPONSE]: async (data: any) => {
         const adapter = this.digitalRadioEngine.getOpenWebRXAudioAdapter();
         if (!adapter) {
@@ -754,6 +755,16 @@ export class WSServer extends WSMessageHandler {
       logger.debug('cw decoder event', data);
       this.broadcastToMinRole(UserRole.VIEWER, WSMessageType.CW_DECODER_EVENT, data);
     });
+
+    this.digitalRadioEngine.on('sstvDecoderStatusChanged', (data) => {
+      logger.debug('sstv decoder status changed', data);
+      this.broadcastToMinRole(UserRole.VIEWER, WSMessageType.SSTV_DECODER_STATUS, data);
+    });
+
+    this.digitalRadioEngine.on('sstvDecoderEvent', (data) => {
+      logger.debug('sstv decoder event', data);
+      this.broadcastToMinRole(UserRole.VIEWER, WSMessageType.SSTV_DECODER_EVENT, data);
+    });
   }
 
   private shouldBroadcastRadioConnectedToast(connected: boolean): boolean {
@@ -788,6 +799,7 @@ export class WSServer extends WSMessageHandler {
     [WSMessageType.CW_TEXT_INPUT]: { action: 'manage', subject: 'Transmission' },
     [WSMessageType.CW_PLAY_MESSAGE]: { action: 'manage', subject: 'Transmission' },
     [WSMessageType.CW_STOP_MESSAGE]: { action: 'manage', subject: 'Transmission' },
+    [WSMessageType.SSTV_TX_PREPARE]: { action: 'manage', subject: 'Transmission' },
     [WSMessageType.VOICE_SET_RADIO_MODE]: { action: 'manage', subject: 'Operator' },
     [WSMessageType.START_OPERATOR]: { action: 'manage', subject: 'Operator' },
     [WSMessageType.STOP_OPERATOR]: { action: 'manage', subject: 'Operator' },
@@ -1051,6 +1063,15 @@ export class WSServer extends WSMessageHandler {
       await this.digitalRadioEngine.setMode(mode);
     } catch (error) {
       this.handleCommandError(error, 'setMode', RadioErrorCode.UNSUPPORTED_MODE);
+    }
+  }
+
+  private async handleSSTVTxPrepare(data: unknown): Promise<void> {
+    try {
+      const parsed = SSTVTxPreparePayloadSchema.parse(data);
+      await this.digitalRadioEngine.prepareSSTVTx(parsed);
+    } catch (error) {
+      this.handleCommandError(error, 'sstvTxPrepare', RadioErrorCode.INVALID_CONFIG);
     }
   }
 
@@ -1464,6 +1485,7 @@ export class WSServer extends WSMessageHandler {
       // 认证未启用 → 直接作为 Admin（向后兼容）
       connection.setAdminBypass();
       this.sendCWDecoderStatus(connection);
+      this.sendSSTVDecoderStatus(connection);
       logger.info(`connection ${id} basic state sent (auth disabled, Admin mode), waiting for client handshake`);
     } else {
       // 认证已启用 → 发送 AUTH_REQUIRED
@@ -1574,6 +1596,14 @@ export class WSServer extends WSMessageHandler {
     }
   }
 
+  private sendSSTVDecoderStatus(connection: WSConnection): void {
+    try {
+      connection.send(WSMessageType.SSTV_DECODER_STATUS, this.digitalRadioEngine.getSSTVStatus());
+    } catch (error) {
+      logger.error('failed to send sstv decoder status', error);
+    }
+  }
+
   private buildInitialFrequencyState(status: SystemStatus): {
     frequency: number;
     mode: string;
@@ -1588,6 +1618,10 @@ export class WSServer extends WSMessageHandler {
     const engineMode = this.digitalRadioEngine.getEngineMode();
     const savedFrequency = engineMode === 'voice'
       ? configManager.getLastVoiceFrequency()
+      : engineMode === 'cw'
+        ? configManager.getLastCWFrequency()
+        : engineMode === 'sstv'
+          ? configManager.getLastSSTVFrequency()
       : configManager.getLastSelectedFrequency();
     const knownFrequency = radioManager.getKnownFrequency();
     const frequency = knownFrequency ?? savedFrequency?.frequency ?? null;
@@ -1598,9 +1632,11 @@ export class WSServer extends WSMessageHandler {
 
     const mode = engineMode === 'voice'
       ? 'VOICE'
-      : (savedFrequency?.frequency === frequency && 'mode' in (savedFrequency ?? {})
-          ? (savedFrequency as { mode?: string }).mode || status.currentMode.name
-          : status.currentMode.name);
+      : engineMode === 'sstv'
+        ? 'SSTV'
+        : (savedFrequency?.frequency === frequency && 'mode' in (savedFrequency ?? {})
+            ? (savedFrequency as { mode?: string }).mode || status.currentMode.name
+            : status.currentMode.name);
     const band = savedFrequency?.frequency === frequency
       ? (savedFrequency.band || this.resolveBandLabel(frequency))
       : this.resolveBandLabel(frequency);
@@ -2543,6 +2579,7 @@ export class WSServer extends WSMessageHandler {
         operatorIds: perms.operatorIds,
       });
       this.sendCWDecoderStatus(connection);
+      this.sendSSTVDecoderStatus(connection);
 
       // 如果是在线升级（之前已经握手完成），重新发送操作员列表
       if (wasAuthenticated || connection.isHandshakeCompleted()) {
@@ -2583,6 +2620,7 @@ export class WSServer extends WSMessageHandler {
       operatorIds: [],
     });
     this.sendCWDecoderStatus(connection);
+    this.sendSSTVDecoderStatus(connection);
 
     logger.info(`connection ${connectionId} entered public viewer mode`);
   }

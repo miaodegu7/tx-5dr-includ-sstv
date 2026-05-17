@@ -117,6 +117,7 @@ export * from './schema/system.schema.js';
 // Voice Schema
 export * from './schema/voice.schema.js';
 export * from './schema/voice-keyer.schema.js';
+export * from './schema/sstv.schema.js';
 
 // CW Keyer Schema
 export * from './schema/cw-keyer.schema.js';

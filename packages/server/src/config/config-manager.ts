@@ -81,6 +81,12 @@ export interface AppConfig {
     band: string;
     description?: string;
   } | null;
+  lastSSTVFrequency?: {
+    frequency: number;
+    radioMode?: string;
+    band: string;
+    description?: string;
+  } | null;
   // 最后设置的音量增益（旧版全局值，保留用于迁移）
   lastVolumeGain: {
     gain: number; // 线性增益值
@@ -100,8 +106,8 @@ export interface AppConfig {
   decodeWindowSettings?: DecodeWindowSettings;
   /** Custom frequency presets (null/undefined = use built-in defaults, includes all modes: FT8/FT4/VOICE) */
   customFrequencyPresets?: PresetFrequency[] | null;
-  /** Last used engine mode ('digital' or 'voice'). Restored on startup. */
-  lastEngineMode?: 'digital' | 'voice' | 'cw';
+  /** Last used engine mode ('digital'/'voice'/'cw'/'sstv'). Restored on startup. */
+  lastEngineMode?: 'digital' | 'voice' | 'cw' | 'sstv';
   /** Last used digital sub-mode name ('FT8' or 'FT4'). Restored on startup within digital mode. */
   lastDigitalModeName?: string;
   /** Voice mode operator callsign */
@@ -268,14 +274,15 @@ export function validateAppConfigCandidate(value: unknown): Record<string, unkno
   assertOptionalObjectOrNull(value, 'lastSelectedFrequency');
   assertOptionalObjectOrNull(value, 'lastVoiceFrequency');
   assertOptionalObjectOrNull(value, 'lastCWFrequency');
+  assertOptionalObjectOrNull(value, 'lastSSTVFrequency');
   assertOptionalObjectOrNull(value, 'lastVolumeGain');
   assertOptionalObjectOrNull(value, 'volumeGainMap');
 
   if (value.activeProfileId !== undefined && value.activeProfileId !== null && typeof value.activeProfileId !== 'string') {
     throw new Error('config.activeProfileId must be a string or null');
   }
-  if (value.lastEngineMode !== undefined && value.lastEngineMode !== 'digital' && value.lastEngineMode !== 'voice' && value.lastEngineMode !== 'cw') {
-    throw new Error('config.lastEngineMode must be digital, voice, or cw');
+  if (value.lastEngineMode !== undefined && value.lastEngineMode !== 'digital' && value.lastEngineMode !== 'voice' && value.lastEngineMode !== 'cw' && value.lastEngineMode !== 'sstv') {
+    throw new Error('config.lastEngineMode must be digital, voice, cw, or sstv');
   }
   if (value.logLevel !== undefined && !['debug', 'info', 'warn', 'error'].includes(String(value.logLevel))) {
     throw new Error('config.logLevel must be debug, info, warn, or error');
@@ -328,6 +335,18 @@ export function validateAppConfigCandidate(value: unknown): Record<string, unkno
     }
     assertOptionalFiniteNumber(value.lastVoiceFrequency, 'ctcssToneTenthsHz');
     assertOptionalFiniteNumber(value.lastVoiceFrequency, 'dcsCode');
+  }
+  if (isPlainObject(value.lastCWFrequency)) {
+    assertOptionalFiniteNumber(value.lastCWFrequency, 'frequency');
+    if (value.lastCWFrequency.band !== undefined && typeof value.lastCWFrequency.band !== 'string') {
+      throw new Error('config.lastCWFrequency.band must be a string');
+    }
+  }
+  if (isPlainObject(value.lastSSTVFrequency)) {
+    assertOptionalFiniteNumber(value.lastSSTVFrequency, 'frequency');
+    if (value.lastSSTVFrequency.band !== undefined && typeof value.lastSSTVFrequency.band !== 'string') {
+      throw new Error('config.lastSSTVFrequency.band must be a string');
+    }
   }
   if (isPlainObject(value.lastVolumeGain)) {
     assertOptionalFiniteNumber(value.lastVolumeGain, 'gain');
@@ -509,6 +528,7 @@ export class ConfigManager {
       lastSelectedFrequency: config.lastSelectedFrequency,
       lastVoiceFrequency: config.lastVoiceFrequency,
       lastCWFrequency: config.lastCWFrequency,
+      lastSSTVFrequency: config.lastSSTVFrequency,
       lastVolumeGain: config.lastVolumeGain,
       volumeGainMap: config.volumeGainMap,
       lastEngineMode: config.lastEngineMode,
@@ -1164,6 +1184,26 @@ export class ConfigManager {
     await this.setRuntimeValue('lastCWFrequency', null);
   }
 
+  getLastSSTVFrequency(): AppConfig['lastSSTVFrequency'] {
+    const runtimeValue = this.getRuntimeValue('lastSSTVFrequency');
+    const value = runtimeValue !== undefined ? runtimeValue : this.config.lastSSTVFrequency;
+    return value ? { ...value } : null;
+  }
+
+  async updateLastSSTVFrequency(frequencyConfig: {
+    frequency: number;
+    radioMode?: string;
+    band: string;
+    description?: string;
+  }): Promise<void> {
+    await this.setRuntimeValue('lastSSTVFrequency', { ...frequencyConfig });
+    logger.debug(`Last SSTV frequency saved: ${frequencyConfig.description || frequencyConfig.frequency}Hz`);
+  }
+
+  async clearLastSSTVFrequency(): Promise<void> {
+    await this.setRuntimeValue('lastSSTVFrequency', null);
+  }
+
   /**
    * 获取最后设置的音量增益
    */
@@ -1404,11 +1444,11 @@ export class ConfigManager {
 
   // ==================== Engine mode persistence ====================
 
-  getLastEngineMode(): 'digital' | 'voice' | 'cw' {
+  getLastEngineMode(): 'digital' | 'voice' | 'cw' | 'sstv' {
     return this.getRuntimeValue('lastEngineMode') ?? this.config.lastEngineMode ?? 'digital';
   }
 
-  async setLastEngineMode(mode: 'digital' | 'voice' | 'cw'): Promise<void> {
+  async setLastEngineMode(mode: 'digital' | 'voice' | 'cw' | 'sstv'): Promise<void> {
     await this.setRuntimeValue('lastEngineMode', mode);
   }
 

@@ -5,6 +5,8 @@ import { VoiceLeftLayout } from './layout/VoiceLeftLayout';
 import { VoiceRightLayout } from './layout/VoiceRightLayout';
 import { CWLeftLayout } from './layout/CWLeftLayout';
 import { CWRightLayout } from './layout/CWRightLayout';
+import { SSTVLeftLayout } from './layout/SSTVLeftLayout';
+import { SSTVRightLayout } from './layout/SSTVRightLayout';
 import { SplitLayout } from './components/common/SplitLayout';
 import { MainRightPluginPane } from './components/plugins/MainRightPluginPane';
 import { useVisiblePluginPanelsForSlot } from './components/plugins/pluginPanelSlots';
@@ -57,6 +59,7 @@ function AppContent() {
 
   const isVoiceMode = engineMode === 'voice';
   const isCWMode = engineMode === 'cw';
+  const isSSTVMode = engineMode === 'sstv';
 
   return (
     <div className="App app-viewport-height w-full overflow-hidden relative">
@@ -73,8 +76,8 @@ function AppContent() {
       )}
 
       <SplitLayout
-        leftContent={isVoiceMode ? <VoiceLeftLayout /> : isCWMode ? <CWLeftLayout /> : <LeftLayout />}
-        rightContent={isVoiceMode ? <VoiceRightLayout /> : isCWMode ? <CWRightLayout /> : <RightLayout />}
+        leftContent={isVoiceMode ? <VoiceLeftLayout /> : isCWMode ? <CWLeftLayout /> : isSSTVMode ? <SSTVLeftLayout /> : <LeftLayout />}
+        rightContent={isVoiceMode ? <VoiceRightLayout /> : isCWMode ? <CWRightLayout /> : isSSTVMode ? <SSTVRightLayout /> : <RightLayout />}
         extraContent={activeOperatorId ? (
           <MainRightPluginPane
             operatorId={activeOperatorId}
@@ -82,9 +85,9 @@ function AppContent() {
           />
         ) : null}
         extraEnabled={mainRightPanels.length > 0}
-        defaultLeftWidth={isVoiceMode ? 30 : 50}
+        defaultLeftWidth={isVoiceMode ? 30 : isSSTVMode ? 45 : 50}
         minLeftWidth={25}
-        maxLeftWidth={isVoiceMode ? 50 : 75}
+        maxLeftWidth={isVoiceMode ? 50 : isSSTVMode ? 70 : 75}
         defaultExtraWidth={26}
         minExtraWidth={18}
         maxExtraWidth={38}
