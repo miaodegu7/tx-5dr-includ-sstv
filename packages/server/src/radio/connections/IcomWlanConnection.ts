@@ -401,7 +401,7 @@ export class IcomWlanConnection
           ? false
           : options?.intent === 'digital'
             ? true
-            : options?.intent === 'voice'
+            : options?.intent === 'voice' || options?.intent === 'cw'
               ? false
               : this.defaultDataMode;
 
@@ -657,6 +657,71 @@ export class IcomWlanConnection
   async setPTT(enabled: boolean): Promise<void> {
     await this.runSerializedTask('setPTT', async () => {
       await this.performPTTWrite(enabled);
+    }, { critical: true });
+  }
+
+  supportsCWMessageKeyer(): boolean {
+    const rig = this.rig as (IcomControl & {
+      sendMorse?: (message: string, options?: { timeout?: number; checkMode?: boolean }) => Promise<void>;
+      stopMorse?: (options?: { timeout?: number }) => Promise<void>;
+    }) | null;
+    const profile = this.getActiveProfile();
+    return Boolean(
+      rig
+      && typeof rig.sendMorse === 'function'
+      && typeof rig.stopMorse === 'function'
+      && profile?.cw?.sendMorse === true,
+    );
+  }
+
+  async sendCWMessage(message: string, wpm: number): Promise<void> {
+    await this.runSerializedTask('sendCWMessage', async () => {
+      this.checkConnected();
+      const rig = this.rig as (IcomControl & {
+        sendMorse?: (message: string, options?: { timeout?: number; checkMode?: boolean }) => Promise<void>;
+        setKeySpeed?: (wpm: number) => void | Promise<void>;
+      }) | null;
+      if (!this.supportsCWMessageKeyer() || !rig || typeof rig.sendMorse !== 'function') {
+        throw this.optionalOperationUnavailable(
+          'sendCWMessage',
+          'ICOM WLAN active profile does not support CW text sending',
+        );
+      }
+
+      try {
+        if (this.hasProfileLevel('KEYSPD') && typeof rig.setKeySpeed === 'function') {
+          try {
+            await rig.setKeySpeed(wpm);
+          } catch (error) {
+            logger.warn('Failed to set ICOM WLAN CW key speed before CAT CW send', {
+              error: error instanceof Error ? error.message : String(error),
+              wpm,
+            });
+          }
+        }
+
+        await rig.sendMorse(message, { timeout: 3000, checkMode: true });
+      } catch (error) {
+        throw this.convertOptionalOperationError(error, 'sendCWMessage');
+      }
+    }, { critical: true });
+  }
+
+  async stopCWMessage(): Promise<void> {
+    await this.runSerializedTask('stopCWMessage', async () => {
+      this.checkConnected();
+      const rig = this.rig as (IcomControl & {
+        stopMorse?: (options?: { timeout?: number }) => Promise<void>;
+      }) | null;
+      if (!this.supportsCWMessageKeyer() || !rig || typeof rig.stopMorse !== 'function') {
+        return;
+      }
+
+      try {
+        await rig.stopMorse({ timeout: 3000 });
+      } catch (error) {
+        throw this.convertOptionalOperationError(error, 'stopCWMessage');
+      }
     }, { critical: true });
   }
 
@@ -1129,56 +1194,36 @@ export class IcomWlanConnection
     });
   }
 
-  async getNBEnabled(): Promise<number> {
-    return this.runSerializedTask('getNBEnabled', async () => {
-      this.checkConnected();
-      try {
-        const reading = this.requireOptionalValue('getNBEnabled', await this.rig!.getNBLevel({ timeout: 3000 }));
-        const value = reading.normalized;
-        logger.debug(`NB level read: ${(value * 100).toFixed(0)}%`);
-        return value;
-      } catch (error) {
-        throw this.convertOptionalOperationError(error, 'getNBEnabled');
-      }
-    });
+  async getNBEnabled(): Promise<boolean> {
+    return this.readFunctionCapability('getNBEnabled', 'NB');
   }
 
-  async setNBEnabled(value: number): Promise<void> {
-    await this.runSerializedTask('setNBEnabled', async () => {
-      this.checkConnected();
-      try {
-        this.rig!.setNBLevel(value);
-        logger.debug(`NB level set: ${(value * 100).toFixed(0)}%`);
-      } catch (error) {
-        throw this.convertOptionalOperationError(error, 'setNBEnabled');
-      }
-    });
+  async setNBEnabled(enabled: boolean): Promise<void> {
+    await this.writeFunctionCapability('setNBEnabled', 'NB', enabled);
   }
 
-  async getNREnabled(): Promise<number> {
-    return this.runSerializedTask('getNREnabled', async () => {
-      this.checkConnected();
-      try {
-        const reading = this.requireOptionalValue('getNREnabled', await this.rig!.getNRLevel({ timeout: 3000 }));
-        const value = reading.normalized;
-        logger.debug(`NR level read: ${(value * 100).toFixed(0)}%`);
-        return value;
-      } catch (error) {
-        throw this.convertOptionalOperationError(error, 'getNREnabled');
-      }
-    });
+  async getNBLevel(): Promise<number> {
+    return this.readLevelCapability('getNBLevel', 'NB');
   }
 
-  async setNREnabled(value: number): Promise<void> {
-    await this.runSerializedTask('setNREnabled', async () => {
-      this.checkConnected();
-      try {
-        this.rig!.setNRLevel(value);
-        logger.debug(`NR level set: ${(value * 100).toFixed(0)}%`);
-      } catch (error) {
-        throw this.convertOptionalOperationError(error, 'setNREnabled');
-      }
-    });
+  async setNBLevel(value: number): Promise<void> {
+    await this.writeLevelCapability('setNBLevel', 'NB', value);
+  }
+
+  async getNREnabled(): Promise<boolean> {
+    return this.readFunctionCapability('getNREnabled', 'NR');
+  }
+
+  async setNREnabled(enabled: boolean): Promise<void> {
+    await this.writeFunctionCapability('setNREnabled', 'NR', enabled);
+  }
+
+  async getNRLevel(): Promise<number> {
+    return this.readLevelCapability('getNRLevel', 'NR');
+  }
+
+  async setNRLevel(value: number): Promise<void> {
+    await this.writeLevelCapability('setNRLevel', 'NR', value);
   }
 
   async getCompressorEnabled(): Promise<boolean> {
@@ -1211,6 +1256,22 @@ export class IcomWlanConnection
 
   async setMonitorEnabled(enabled: boolean): Promise<void> {
     await this.writeFunctionCapability('setMonitorEnabled', 'MON', enabled);
+  }
+
+  async getApfEnabled(): Promise<boolean> {
+    return this.readFunctionCapability('getApfEnabled', 'APF');
+  }
+
+  async setApfEnabled(enabled: boolean): Promise<void> {
+    await this.writeFunctionCapability('setApfEnabled', 'APF', enabled);
+  }
+
+  async getApfLevel(): Promise<number> {
+    return this.readLevelCapability('getApfLevel', 'APF');
+  }
+
+  async setApfLevel(value: number): Promise<void> {
+    await this.writeLevelCapability('setApfLevel', 'APF', value);
   }
 
   async getVOXEnabled(): Promise<boolean> {
@@ -1318,6 +1379,8 @@ export class IcomWlanConnection
   async setVoxGain(value: number): Promise<void> { await this.writeLevelCapability('setVoxGain', 'VOXGAIN', value); }
   async getAntiVox(): Promise<number> { return this.readLevelCapability('getAntiVox', 'ANTIVOX'); }
   async setAntiVox(value: number): Promise<void> { await this.writeLevelCapability('setAntiVox', 'ANTIVOX', value); }
+  async getVoxDelay(): Promise<number> { return this.readLevelCapability('getVoxDelay', 'VOXDELAY'); }
+  async setVoxDelay(value: number): Promise<void> { await this.writeLevelCapability('setVoxDelay', 'VOXDELAY', value); }
 
   async getBreakInDelay(): Promise<number> {
     return this.runSerializedTask('getBreakInDelay', async () => {
@@ -1344,6 +1407,12 @@ export class IcomWlanConnection
 
   async getDriveGain(): Promise<number> { return this.readLevelCapability('getDriveGain', 'DRIVE_GAIN'); }
   async setDriveGain(value: number): Promise<void> { await this.writeLevelCapability('setDriveGain', 'DRIVE_GAIN', value); }
+  async getAgcTime(): Promise<number> { return this.readLevelCapability('getAgcTime', 'AGC_TIME'); }
+  async setAgcTime(value: number): Promise<void> { await this.writeLevelCapability('setAgcTime', 'AGC_TIME', value); }
+  async getBalance(): Promise<number> { return this.readLevelCapability('getBalance', 'BALANCE'); }
+  async setBalance(value: number): Promise<void> { await this.writeLevelCapability('setBalance', 'BALANCE', value); }
+  async getDigiSelEnabled(): Promise<boolean> { return this.readFunctionCapability('getDigiSelEnabled', 'DIGI_SEL'); }
+  async setDigiSelEnabled(enabled: boolean): Promise<void> { await this.writeFunctionCapability('setDigiSelEnabled', 'DIGI_SEL', enabled); }
   async getDigiSelLevel(): Promise<number> { return this.readLevelCapability('getDigiSelLevel', 'DIGI_SEL_LEVEL'); }
   async setDigiSelLevel(value: number): Promise<void> { await this.writeLevelCapability('setDigiSelLevel', 'DIGI_SEL_LEVEL', value); }
 
